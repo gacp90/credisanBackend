@@ -85,27 +85,45 @@ export class CredisanesActivationService {
   }
 
   // NUEVO MÉTODO: Hace el sorteo 1 a 1 cuando el dueño decida
-  async executeDraw(credisanId: string, currentRoundNumber: number) {
+  async executeDraw(credisanId: string, currentRoundNumber: number, preselectedAssignmentId?: string) {
+    // 1. Buscamos TODOS los participantes elegibles (que aún no tienen puesto)
     const eligibleParticipants = await this.assignmentModel.find({ 
       credisanId: new Types.ObjectId(credisanId),
-      positionNumber: null // Solo participan los que no tienen puesto asignado
+      positionNumber: null 
     });
 
     if (eligibleParticipants.length === 0) {
       throw new BadRequestException('Ya no hay participantes elegibles para sorteo.');
     }
 
-    // Elegimos uno al azar
-    const randomIndex = Math.floor(Math.random() * eligibleParticipants.length);
-    const winner = eligibleParticipants[randomIndex];
+    let winner;
 
-    // Le asignamos la ronda
+    // 2. Lógica de selección
+    if (preselectedAssignmentId) {
+      // OPCIÓN 2: El administrador preseleccionó un ganador por seguridad
+      winner = eligibleParticipants.find(p => p._id.toString() === preselectedAssignmentId);
+      
+      if (!winner) {
+        // Validamos por seguridad: si enviaron un ID de alguien que ya ganó o que no pertenece a este San.
+        throw new BadRequestException('El participante seleccionado no es válido o ya tiene un puesto asignado en este San.');
+      }
+    } else {
+      // OPCIÓN 1: Sorteo 100% Aleatorio (Lógica original)
+      const randomIndex = Math.floor(Math.random() * eligibleParticipants.length);
+      winner = eligibleParticipants[randomIndex];
+    }
+
+    // 3. Adjudicar el premio
     winner.positionNumber = currentRoundNumber;
     await winner.save();
 
     return {
-      message: `¡Sorteo exitoso! La ronda ${currentRoundNumber} ha sido adjudicada.`,
-      winnerId: winner.tenantClientId
+      message: preselectedAssignmentId 
+        ? `Adjudicación directa exitosa. La ronda ${currentRoundNumber} ha sido asignada.`
+        : `¡Sorteo aleatorio exitoso! La ronda ${currentRoundNumber} ha sido adjudicada.`,
+      winnerId: winner.tenantClientId, // Mantenemos la compatibilidad con tu frontend actual
+      assignmentId: winner._id,        // Devolvemos esto por si lo necesitas
+      isRandom: !preselectedAssignmentId // Bandera útil por si el frontend quiere mostrar un confeti diferente
     };
   }
 }

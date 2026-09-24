@@ -53,13 +53,14 @@ export class CredisanesController {
     return this.activationService.activateSan(tenantId, credisanId);
   }
 
-  // NUEVA RUTA PARA EL SORTEO
+  // RUTA PARA EL SORTEO
   @Post(':id/draw')
   @RequireRole('OWNER', 'ADMIN')
   async executeDraw(
     @Param('id') credisanId: string, 
-    @Body('roundNumber') roundNumber: number
+    @Body('roundNumber') roundNumber: number,
+    @Body('preselectedAssignmentId') preselectedAssignmentId?: string // <-- NUEVO PARÁMETRO OPCIONAL
   ) {
-    return this.activationService.executeDraw(credisanId, roundNumber);
+    return this.activationService.executeDraw(credisanId, roundNumber, preselectedAssignmentId);
   }
 }
