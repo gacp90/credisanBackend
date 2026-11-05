@@ -8,6 +8,7 @@ import { Installment, InstallmentSchema } from '../installments/schemas/installm
 import { Assignment, AssignmentSchema } from '../assignments/schemas/assignment.schema';
 import { AssignmentsController } from '../assignments/assignments.controller';
 import { AssignmentsService } from '../assignments/assignments.service';
+import { Transaction, TransactionSchema } from 'src/modules/finances/transactions/schemas/transaction.schema';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { AssignmentsService } from '../assignments/assignments.service';
       { name: Credisan.name, schema: CredisanSchema },
       { name: Assignment.name, schema: AssignmentSchema },
       { name: Installment.name, schema: InstallmentSchema },
+      { name: Transaction.name, schema: TransactionSchema }
     ])
   ],
   providers: [CredisanesService, CredisanesActivationService, AssignmentsService],

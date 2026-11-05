@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, InternalServerErrorException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
 import { InjectModel, InjectConnection } from '@nestjs/mongoose';
 import { Model, Types, Connection } from 'mongoose';
 import dayjs from 'dayjs';
@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import { Credisan } from './schemas/credisan.schema';
 import { Assignment } from '../assignments/schemas/assignment.schema';
 import { Installment } from '../installments/schemas/installment.schema';
+import { Transaction } from 'src/modules/finances/transactions/schemas/transaction.schema';
 
 @Injectable()
 export class CredisanesActivationService {
@@ -13,6 +14,7 @@ export class CredisanesActivationService {
     @InjectModel(Credisan.name) private credisanModel: Model<Credisan>,
     @InjectModel(Assignment.name) private assignmentModel: Model<Assignment>,
     @InjectModel(Installment.name) private installmentModel: Model<Installment>,
+    @InjectModel(Transaction.name) private transactionModel: Model<any>,
     @InjectConnection() private readonly connection: Connection, 
   ) {}
 
@@ -125,5 +127,94 @@ export class CredisanesActivationService {
       assignmentId: winner._id,        // Devolvemos esto por si lo necesitas
       isRandom: !preselectedAssignmentId // Bandera útil por si el frontend quiere mostrar un confeti diferente
     };
+  }
+
+  // --- CASO 1: REVOCAR PUESTO DE UN PARTICIPANTE (LIBERAR CUPO) ---
+  async revokeDrawPosition(credisanId: string, assignmentId: string) {
+    const assignment = await this.assignmentModel.findOne({
+      _id: new Types.ObjectId(assignmentId),
+      credisanId: new Types.ObjectId(credisanId),
+    });
+
+    if (!assignment) {
+      throw new NotFoundException('Participación no encontrada en este San.');
+    }
+
+    if (assignment.positionNumber === null) {
+      throw new BadRequestException('Este participante aún no tiene un puesto asignado.');
+    }
+
+    // TODO: Null no permitido
+    const previousPosition = assignment.positionNumber;
+    assignment.positionNumber = null!;
+    await assignment.save();
+
+    return {
+      message: `El puesto #${previousPosition} ha sido liberado correctamente y está disponible para sortear nuevamente.`,
+      assignment,
+    };
+  }
+
+  // --- CASO 2: REEMPLAZAR PARTICIPANTE (CESIÓN DE CUPO) ---
+  async replaceParticipant(
+    credisanId: string,
+    assignmentId: string,
+    newTenantClientId: string,
+  ) {
+    const assignment = await this.assignmentModel.findOne({
+      _id: new Types.ObjectId(assignmentId),
+      credisanId: new Types.ObjectId(credisanId),
+    });
+
+    if (!assignment) {
+      throw new NotFoundException('La asignación que intentas modificar no existe.');
+    }
+
+    const newClientObjectId = new Types.ObjectId(newTenantClientId);
+
+    // Validar que no sea exactamente la misma persona
+    if (assignment.tenantClientId.toString() === newTenantClientId) {
+      throw new BadRequestException('El cliente seleccionado ya es el titular de este cupo.');
+    }
+
+    try {
+      // 1. Actualizar el titular en la Asignación (conservando su positionNumber si ya tenía)
+      assignment.tenantClientId = newClientObjectId as any;
+      await assignment.save();
+
+      // 2. Obtener todas las cuotas (Installments) de este cupo
+      const installments = await this.installmentModel.find({
+        assignmentId: assignment._id,
+      });
+
+      const installmentIds = installments.map((inst) => inst._id);
+
+      // 3. Actualizar tenantClientId en las cuotas (si tu schema de Installment guarda este campo)
+      await this.installmentModel.updateMany(
+        { assignmentId: assignment._id },
+        { $set: { tenantClientId: newClientObjectId } },
+      );
+
+      // 4. Traspasar todos los pagos/transacciones históricas y pendientes al nuevo cliente
+      if (installmentIds.length > 0) {
+        await this.transactionModel.updateMany(
+          { installmentId: { $in: installmentIds } },
+          { $set: { tenantClientId: newClientObjectId } },
+        );
+      }
+
+      return {
+        message: 'Participante reemplazado con éxito. Todas las cuotas y pagos históricos fueron transferidos.',
+        assignment: await assignment.populate({
+          path: 'tenantClientId',
+          populate: { path: 'userId', select: '-password' },
+        }),
+      };
+    } catch (error: any) {
+      if (error.code === 11000) {
+        throw new ConflictException('Este cliente ya está inscrito en este San y no puede duplicarse.');
+      }
+      throw error;
+    }
   }
 }

@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Param, UseGuards, Put } from '@nestjs/common';
 import { CredisanesService } from './credisanes.service';
 import { CredisanesActivationService } from './credisanes-activation.service';
 import { CreateCredisanDto } from './dto/create-credisan.dto';
@@ -62,5 +62,30 @@ export class CredisanesController {
     @Body('preselectedAssignmentId') preselectedAssignmentId?: string // <-- NUEVO PARÁMETRO OPCIONAL
   ) {
     return this.activationService.executeDraw(credisanId, roundNumber, preselectedAssignmentId);
+  }
+
+  // CASO 1: LIMPIAR PUESTO SORTEADO
+  @Put(':id/assignments/:assignmentId/revoke-position')
+  @RequireRole('OWNER', 'ADMIN')
+  async revokePosition(
+    @Param('id') credisanId: string,
+    @Param('assignmentId') assignmentId: string,
+  ) {
+    return this.activationService.revokeDrawPosition(credisanId, assignmentId);
+  }
+
+  // CASO 2: REEMPLAZAR PARTICIPANTE EN EL SAN
+  @Put(':id/assignments/:assignmentId/replace-participant')
+  @RequireRole('OWNER', 'ADMIN')
+  async replaceParticipant(
+    @Param('id') credisanId: string,
+    @Param('assignmentId') assignmentId: string,
+    @Body('newTenantClientId') newTenantClientId: string,
+  ) {
+    return this.activationService.replaceParticipant(
+      credisanId,
+      assignmentId,
+      newTenantClientId,
+    );
   }
 }
